@@ -1,7 +1,9 @@
 import asyncio
+import threading
 from dataclasses import dataclass
 
 import pytest
+
 from autogen_core import (
     AgentId,
     AgentInstantiationContext,
@@ -11,6 +13,31 @@ from autogen_core import (
     SingleThreadedAgentRuntime,
     message_handler,
 )
+
+
+@pytest.mark.parametrize("register_after_cancel", [False, True])
+def test_cancellation_callback_can_inspect_its_token(register_after_cancel: bool) -> None:
+    token = CancellationToken()
+    observed = []
+
+    def callback() -> None:
+        observed.append(token.is_cancelled())
+
+    def cancel_and_register() -> None:
+        if register_after_cancel:
+            token.cancel()
+            token.add_callback(callback)
+        else:
+            token.add_callback(callback)
+            token.cancel()
+        token.cancel()
+
+    worker = threading.Thread(target=cancel_and_register, daemon=True)
+    worker.start()
+    worker.join(timeout=2)
+
+    assert not worker.is_alive(), "cancellation callback blocked while reading the token"
+    assert observed == [True]
 
 
 @dataclass
